@@ -22,7 +22,15 @@ export default function AuthCallback() {
       setStep("loading");
       setError("");
 
-      // CRITICAL FIX: Wait for session to be established
+      // Exchange the code for a session first
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) throw exchangeError;
+      }
+
+      // Now wait for session
       let session = null;
       let attempts = 0;
       const maxAttempts = 15;
@@ -41,23 +49,21 @@ export default function AuthCallback() {
         throw new Error("Failed to establish session. Please try logging in again.");
       }
 
-      // CRITICAL FIX: Check if user already has a profile
+      // Check if user already has a profile
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("salt")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
-      if (profileError && profileError.code !== 'PGRST116') {
+      if (profileError && profileError.code !== "PGRST116") {
         throw profileError;
       }
 
       if (profile?.salt) {
-        // CRITICAL FIX: Existing user - needs to enter their vault password
         setNeedsPassword(true);
         setStep("enterPassword");
       } else {
-        // New OAuth user - needs to create vault password
         setNeedsPassword(false);
         setStep("setPassword");
       }
@@ -86,12 +92,8 @@ export default function AuthCallback() {
 
     try {
       const { error: callbackError } = await handleOAuthCallback(password);
+      if (callbackError) throw callbackError;
 
-      if (callbackError) {
-        throw callbackError;
-      }
-
-      // Success - redirect to dashboard
       navigate("/dashboard");
     } catch (e) {
       console.error("Password setup error:", e);
@@ -197,41 +199,3 @@ export default function AuthCallback() {
             />
           </div>
 
-          {!needsPassword && (
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-300 mb-2">
-                Confirm Password
-              </label>
-              <input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="input-field"
-                placeholder="Repeat your password"
-                required
-                minLength={8}
-              />
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="btn-primary w-full"
-          >
-            {needsPassword ? "Unlock Vault" : "Secure My Vault"}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => navigate("/login")}
-            className="text-gray-400 hover:text-white text-sm transition-colors"
-          >
-            ← Back to Login
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
